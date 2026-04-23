@@ -1,0 +1,8 @@
+build/
+aruco_pose/runtime/sim_build/
+install/
+log/
+__pycache__/
+*.pyc
+venv/
+.env

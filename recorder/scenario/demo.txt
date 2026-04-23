@@ -1,0 +1,14 @@
+start
+record(reset)
+move(180,50,20)
+record(start)
+delaysec(2)
+move(180,80,20)
+delaysec(2)
+move(180,130,20)
+delaysec(2)
+move(180,180,20)
+delaysec(2)
+record(end)
+export("records/demo.csv")
+end
