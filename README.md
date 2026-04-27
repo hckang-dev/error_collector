@@ -2,6 +2,8 @@
 
 <img width="800" height="600" alt="Image" src="https://github.com/user-attachments/assets/f6cf547e-ddc4-4b44-a16f-272b722b2e9a" />
 
+(흐린 마커들은 이론상 위치, 원색 RGB 마커들은 aruco_reader가 읽어낸 위치입니다)
+
 ## 파일 흐름
 
 ```text
