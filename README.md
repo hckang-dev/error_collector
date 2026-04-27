@@ -1,47 +1,33 @@
 # error_collector
 
-실험 데이터를 수집하고, 영상 기반 ArUco 추적 결과와 모터/IMU 기록을 정리한 뒤, 최종적으로 하나의 타임라인으로 합쳐 재생하는 도구 모음입니다.
-
 <img width="800" height="600" alt="Image" src="https://github.com/user-attachments/assets/f6cf547e-ddc4-4b44-a16f-272b722b2e9a" />
 
-## Pipeline
-
-이 저장소의 흐름은 아래처럼 두 갈래로 진행된 뒤 하나로 합쳐집니다.
+## 파일 흐름
 
 ```text
-recorder -> record_refiner
-aruco_reader -> aruco_refiner
-                |
-                v
-      record_refiner + aruco_refiner
-                    -> merger
-                    -> player
+recorder ─> record_refiner ──────┐
+aruco_reader ─> aruco_refiner ───┤
+                                 └──────> merger ─> player
+실행은 각 폴더 내의 app.py로
 ```
 
-조금 더 풀어서 쓰면 다음과 같습니다.
-
 ```text
-1) recorder
+1-A. recorder
    -> 모터 값, 로드 값, IMU quaternion 기록
-   -> recorder/records/*.csv
 
-2) record_refiner
+1-B. record_refiner
    -> recorder CSV를 기반으로 모델상 ArUco 마커의 이론 위치/자세 계산
-   -> record_refiner/results/*.csv
 
-3) aruco_reader
+2-A. aruco_reader
    -> 동영상을 읽어 ArUco 마커 위치/자세 추출
-   -> aruco_reader/records/*.csv
 
-4) aruco_refiner
+2-B. aruco_refiner
    -> 영상 기반 ArUco 결과를 필터링하고 결측을 일부 보정
-   -> aruco_refiner/results/*.csv
 
-5) merger
+3. merger
    -> record_refiner 결과와 aruco_refiner 결과를 시간축 기준으로 병합
-   -> merger/results/*.csv
 
-6) player
+4. player
    -> 병합 CSV를 읽어 Genesis에서 재생 및 시각화
 ```
 
