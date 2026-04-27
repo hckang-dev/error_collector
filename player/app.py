@@ -41,6 +41,7 @@ ARUCO_NORMAL_STICK_M = 0.010
 ARUCO_MARKER_MESH_PATH = Path(__file__).resolve().parent / "assets" / "aruco_marker" / "marker_square.obj"
 ARUCO_MARKER_IDS = tuple(range(1, 16))
 ARUCO_BASE_IDS = (13, 14, 15)
+ARUCO_NODE_MARKER_IDS = tuple(marker_id for marker_id in ARUCO_MARKER_IDS if marker_id not in ARUCO_BASE_IDS)
 ARUCO_GROUPS_BY_BASE: Dict[int, tuple[int, ...]] = {
     13: (1, 4, 7, 10),
     14: (2, 5, 8, 11),
@@ -51,6 +52,13 @@ ARUCO_GROUP_COLOR: Dict[int, tuple[float, float, float, float]] = {
     14: (0.20, 0.70, 0.35, 0.95),
     15: (0.20, 0.45, 1.00, 0.95),
 }
+IDEAL_MARKER_GROUP_COLOR: Dict[int, tuple[float, float, float, float]] = {
+    13: (0.78, 0.56, 0.54, 0.95),
+    14: (0.55, 0.70, 0.58, 0.95),
+    15: (0.56, 0.64, 0.82, 0.95),
+}
+IDEAL_MARKER_COLOR_DEFAULT = (0.60, 0.60, 0.60, 0.95)
+IDEAL_MARKER_COLOR_BY_ID: Dict[int, tuple[float, float, float, float]] = {}
 BASE_OFFSETS_M: Dict[int, Vec3] = {
     13: (-0.010, 0.065, 0.010),
     14: (-0.030, 0.065, 0.010),
@@ -84,6 +92,7 @@ class PlaybackFrame:
     seg1: Optional[float]
     seg2: Optional[float]
     markers: Dict[int, tuple[np.ndarray, np.ndarray]]
+    model_markers: Dict[int, tuple[np.ndarray, np.ndarray]]
 
 
 @dataclass(frozen=True)
@@ -253,10 +262,25 @@ def load_playback_csv(path: Path) -> PlaybackData:
             if t is None:
                 t = float(index) / 30.0
             markers: Dict[int, tuple[np.ndarray, np.ndarray]] = {}
+            model_markers: Dict[int, tuple[np.ndarray, np.ndarray]] = {}
             for marker_id in ARUCO_MARKER_IDS:
                 px = _float_or_none(row.get(f"p{marker_id}x"))
                 py = _float_or_none(row.get(f"p{marker_id}y"))
                 pz = _float_or_none(row.get(f"p{marker_id}z"))
+                mx = _float_or_none(row.get(f"mp{marker_id}x"))
+                my = _float_or_none(row.get(f"mp{marker_id}y"))
+                mz = _float_or_none(row.get(f"mp{marker_id}z"))
+                mqx = _float_or_none(row.get(f"mq{marker_id}x"))
+                mqy = _float_or_none(row.get(f"mq{marker_id}y"))
+                mqz = _float_or_none(row.get(f"mq{marker_id}z"))
+                mqw = _float_or_none(row.get(f"mq{marker_id}w"))
+                if None not in (mx, my, mz, mqx, mqy, mqz, mqw):
+                    try:
+                        model_rot = _quat_xyzw_to_matrix(np.array([mqx, mqy, mqz, mqw], dtype=float))
+                    except ValueError:
+                        model_rot = None
+                    if model_rot is not None and np.all(np.isfinite(model_rot)):
+                        model_markers[int(marker_id)] = (np.array([mx, my, mz], dtype=float), model_rot)
                 if None in (px, py, pz):
                     continue
 
@@ -291,6 +315,7 @@ def load_playback_csv(path: Path) -> PlaybackData:
                     seg1=_float_or_none(row.get("seg1")),
                     seg2=_float_or_none(row.get("seg2")),
                     markers=markers,
+                    model_markers=model_markers,
                 )
             )
     return PlaybackData(frames=frames, marker_ids=tuple(sorted(seen_marker_ids)))
@@ -320,6 +345,8 @@ class GenesisPlayer:
         self._robot = None
         self._marker_plate_entities: Dict[int, object] = {}
         self._marker_debug_objects: Dict[int, List[object]] = {}
+        self._model_marker_plate_entities: Dict[int, object] = {}
+        self._model_marker_debug_objects: Dict[int, List[object]] = {}
         self._joint_names: List[str] = []
         self._dofs_idx_local: List[int] = []
         self._last_wall = time.monotonic()
@@ -356,10 +383,12 @@ class GenesisPlayer:
             self._last_applied_signature = None
             self._last_reported_state = None
         marker_frames = sum(1 for frame in data.frames if frame.markers)
+        model_marker_frames = sum(1 for frame in data.frames if frame.model_markers)
         robot_frames = sum(1 for frame in data.frames if frame.roll is not None or frame.seg1 is not None or frame.seg2 is not None)
         self._log(
             f"Loaded {len(data.frames)} frames; robot intent frames={robot_frames}; "
-            f"marker actual frames={marker_frames}; marker ids={list(data.marker_ids)}"
+            f"marker actual frames={marker_frames}; marker ideal frames={model_marker_frames}; "
+            f"marker ids={list(data.marker_ids)}"
         )
         self._emit_playback_state()
 
@@ -495,12 +524,24 @@ class GenesisPlayer:
         if self._scene is None:
             return
         self._marker_plate_entities = {}
+        self._model_marker_plate_entities = {}
         for marker_id in ARUCO_MARKER_IDS:
             color = ARUCO_GROUP_COLOR[marker_group(int(marker_id))]
             try:
                 self._marker_plate_entities[int(marker_id)] = self._make_marker_plate_entity(color)
             except Exception as exc:
                 self._log(f"Failed to create marker {marker_id} plate: {exc}")
+            if int(marker_id) in ARUCO_BASE_IDS:
+                continue
+            try:
+                self._model_marker_plate_entities[int(marker_id)] = self._make_marker_plate_entity(
+                    IDEAL_MARKER_COLOR_BY_ID.get(
+                        int(marker_id),
+                        IDEAL_MARKER_GROUP_COLOR.get(marker_group(int(marker_id)), IDEAL_MARKER_COLOR_DEFAULT),
+                    )
+                )
+            except Exception as exc:
+                self._log(f"Failed to create ideal marker {marker_id} plate: {exc}")
 
     def _make_marker_plate_entity(self, color: tuple[float, float, float, float]) -> object:
         assert gs is not None
@@ -516,7 +557,21 @@ class GenesisPlayer:
 
         morph = None
         last_exc: Exception | None = None
-        if ARUCO_MARKER_MESH_PATH.is_file() and hasattr(gs.morphs, "Mesh"):
+        # Prefer a thin box over the flat marker mesh. The mesh is effectively
+        # planar and can trigger trimesh volume/center-of-mass warnings.
+        for kwargs in (
+            {"pos": tuple(float(v) for v in HIDE_POS), "size": (ARUCO_MARKER_SIZE_M, ARUCO_MARKER_SIZE_M, 0.0006), "fixed": True},
+            {"pos": tuple(float(v) for v in HIDE_POS), "extents": (ARUCO_MARKER_SIZE_M, ARUCO_MARKER_SIZE_M, 0.0006), "fixed": True},
+            {"pos": tuple(float(v) for v in HIDE_POS), "size": (ARUCO_MARKER_SIZE_M, ARUCO_MARKER_SIZE_M, 0.0006)},
+            {"pos": tuple(float(v) for v in HIDE_POS), "extents": (ARUCO_MARKER_SIZE_M, ARUCO_MARKER_SIZE_M, 0.0006)},
+        ):
+            try:
+                morph = gs.morphs.Box(**kwargs)
+                break
+            except Exception as exc:
+                last_exc = exc
+
+        if morph is None and ARUCO_MARKER_MESH_PATH.is_file() and hasattr(gs.morphs, "Mesh"):
             for kwargs in (
                 {"file": str(ARUCO_MARKER_MESH_PATH), "pos": tuple(float(v) for v in HIDE_POS), "fixed": True},
                 {"file": str(ARUCO_MARKER_MESH_PATH), "pos": tuple(float(v) for v in HIDE_POS)},
@@ -525,19 +580,6 @@ class GenesisPlayer:
             ):
                 try:
                     morph = gs.morphs.Mesh(**kwargs)
-                    break
-                except Exception as exc:
-                    last_exc = exc
-
-        if morph is None:
-            for kwargs in (
-                {"pos": tuple(float(v) for v in HIDE_POS), "size": (ARUCO_MARKER_SIZE_M, ARUCO_MARKER_SIZE_M, 0.0006), "fixed": True},
-                {"pos": tuple(float(v) for v in HIDE_POS), "extents": (ARUCO_MARKER_SIZE_M, ARUCO_MARKER_SIZE_M, 0.0006), "fixed": True},
-                {"pos": tuple(float(v) for v in HIDE_POS), "size": (ARUCO_MARKER_SIZE_M, ARUCO_MARKER_SIZE_M, 0.0006)},
-                {"pos": tuple(float(v) for v in HIDE_POS), "extents": (ARUCO_MARKER_SIZE_M, ARUCO_MARKER_SIZE_M, 0.0006)},
-            ):
-                try:
-                    morph = gs.morphs.Box(**kwargs)
                     break
                 except Exception as exc:
                     last_exc = exc
@@ -643,7 +685,7 @@ class GenesisPlayer:
         frame_index, frame = self._next_frame()
         should_apply = frame is None
         if frame is not None:
-            signature = (frame_index, len(frame.markers))
+            signature = (frame_index, len(frame.markers), len(frame.model_markers))
             should_apply = self._last_applied_signature != signature
             self._last_applied_signature = signature
         if should_apply:
@@ -679,18 +721,20 @@ class GenesisPlayer:
         if frame is not None:
             self._apply_robot_pose(frame)
         markers = self._base_markers_from_housing()
+        model_markers: Dict[int, tuple[np.ndarray, np.ndarray]] = {}
         if frame is not None:
             markers.update(self._align_actual_markers_to_housing_bases(frame.markers, markers))
-        self._apply_markers(markers)
+            model_markers = self._align_relative_markers_to_housing_bases(frame.model_markers, markers)
+        self._apply_markers(markers, model_markers)
         self._last_applied_frame_index = -1 if frame is None else self.frame_index
 
-    def _align_actual_markers_to_housing_bases(
+    def _align_relative_markers_to_housing_bases(
         self,
-        actual_markers: Dict[int, tuple[np.ndarray, np.ndarray]],
+        relative_markers: Dict[int, tuple[np.ndarray, np.ndarray]],
         housing_bases: Dict[int, tuple[np.ndarray, np.ndarray]],
     ) -> Dict[int, tuple[np.ndarray, np.ndarray]]:
         aligned: Dict[int, tuple[np.ndarray, np.ndarray]] = {}
-        for marker_id, marker_pose in actual_markers.items():
+        for marker_id, marker_pose in relative_markers.items():
             marker_int = int(marker_id)
             if marker_int in ARUCO_BASE_IDS:
                 continue
@@ -705,6 +749,13 @@ class GenesisPlayer:
 
             aligned[marker_int] = _compose_transform(housing_base[0], housing_base[1], marker_pose[0], marker_pose[1])
         return aligned
+
+    def _align_actual_markers_to_housing_bases(
+        self,
+        actual_markers: Dict[int, tuple[np.ndarray, np.ndarray]],
+        housing_bases: Dict[int, tuple[np.ndarray, np.ndarray]],
+    ) -> Dict[int, tuple[np.ndarray, np.ndarray]]:
+        return self._align_relative_markers_to_housing_bases(actual_markers, housing_bases)
 
     def _base_markers_from_housing(self) -> Dict[int, tuple[np.ndarray, np.ndarray]]:
         if self._robot is None:
@@ -756,7 +807,11 @@ class GenesisPlayer:
         values.extend([seg2_rad] * second)
         return values[: len(self._joint_names)]
 
-    def _apply_markers(self, markers: Dict[int, tuple[np.ndarray, np.ndarray]]) -> None:
+    def _apply_markers(
+        self,
+        markers: Dict[int, tuple[np.ndarray, np.ndarray]],
+        model_markers: Dict[int, tuple[np.ndarray, np.ndarray]],
+    ) -> None:
         if self._scene is None:
             return
         for marker_id in ARUCO_MARKER_IDS:
@@ -767,6 +822,24 @@ class GenesisPlayer:
                 continue
             pos, rot = payload
             self._draw_marker_debug(int(marker_id), np.asarray(pos, dtype=float), np.asarray(rot, dtype=float))
+        for marker_id in ARUCO_NODE_MARKER_IDS:
+            payload = model_markers.get(int(marker_id))
+            self._clear_model_marker_debug(int(marker_id))
+            if payload is None:
+                self._hide_model_marker_plate(int(marker_id))
+                continue
+            pos, rot = payload
+            self._draw_model_marker_debug(int(marker_id), np.asarray(pos, dtype=float), np.asarray(rot, dtype=float))
+
+    def _clear_model_marker_debug(self, marker_id: int) -> None:
+        if self._scene is None:
+            return
+        objects = self._model_marker_debug_objects.pop(int(marker_id), [])
+        for obj in objects:
+            try:
+                self._scene.clear_debug_object(obj)
+            except Exception:
+                pass
 
     def _clear_marker_debug(self, marker_id: int) -> None:
         if self._scene is None:
@@ -813,14 +886,73 @@ class GenesisPlayer:
             pass
         self._marker_debug_objects[int(marker_id)] = objects
 
+    def _draw_model_marker_debug(self, marker_id: int, pos: np.ndarray, rot: np.ndarray) -> None:
+        if self._scene is None:
+            return
+        center = np.asarray(pos, dtype=float).reshape(3)
+        rot = np.asarray(rot, dtype=float).reshape(3, 3)
+        x_axis = _normalize(rot[:, 0])
+        normal = _normalize(rot[:, 2])
+        color = IDEAL_MARKER_COLOR_BY_ID.get(
+            int(marker_id),
+            IDEAL_MARKER_GROUP_COLOR.get(marker_group(int(marker_id)), IDEAL_MARKER_COLOR_DEFAULT),
+        )
+        normal_color = (
+            min(1.0, float(color[0]) + 0.12),
+            min(1.0, float(color[1]) + 0.12),
+            min(1.0, float(color[2]) + 0.12),
+            float(color[3]),
+        )
+        self._set_model_marker_plate_pose(int(marker_id), center, rot)
+        objects: List[object] = []
+        try:
+            objects.extend(
+                self._draw_debug_segment(
+                    center,
+                    center + normal * float(ARUCO_NORMAL_STICK_M) * 0.75,
+                    normal_color,
+                    radius=0.0008,
+                )
+            )
+            objects.append(
+                self._scene.draw_debug_sphere(
+                    pos=center + normal * float(ARUCO_NORMAL_STICK_M) * 0.75,
+                    radius=0.0018,
+                    color=color,
+                )
+            )
+            objects.extend(
+                self._draw_debug_segment(
+                    center,
+                    center + x_axis * float(ARUCO_MARKER_SIZE_M) * 0.6,
+                    color,
+                    radius=0.0008,
+                )
+            )
+        except Exception:
+            pass
+        self._model_marker_debug_objects[int(marker_id)] = objects
+
     def _hide_marker_plate(self, marker_id: int) -> None:
         entity = self._marker_plate_entities.get(int(marker_id))
         if entity is None:
             return
         self._set_entity_pose(entity, HIDE_POS, np.array([1.0, 0.0, 0.0, 0.0], dtype=float))
 
+    def _hide_model_marker_plate(self, marker_id: int) -> None:
+        entity = self._model_marker_plate_entities.get(int(marker_id))
+        if entity is None:
+            return
+        self._set_entity_pose(entity, HIDE_POS, np.array([1.0, 0.0, 0.0, 0.0], dtype=float))
+
     def _set_marker_plate_pose(self, marker_id: int, pos: np.ndarray, rot: np.ndarray) -> None:
         entity = self._marker_plate_entities.get(int(marker_id))
+        if entity is None:
+            return
+        self._set_entity_pose(entity, np.asarray(pos, dtype=float).reshape(3), _quat_wxyz_from_matrix(rot))
+
+    def _set_model_marker_plate_pose(self, marker_id: int, pos: np.ndarray, rot: np.ndarray) -> None:
+        entity = self._model_marker_plate_entities.get(int(marker_id))
         if entity is None:
             return
         self._set_entity_pose(entity, np.asarray(pos, dtype=float).reshape(3), _quat_wxyz_from_matrix(rot))

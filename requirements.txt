@@ -1,0 +1,15 @@
+# Core numeric dependency
+numpy
+
+# OpenCV with ArUco support (cv2.aruco)
+opencv-contrib-python
+
+# Recorder hardware I/O
+pyserial
+dynamixel-sdk
+
+# Player runtime
+genesis-world
+
+# System package, not installable from pip:
+# tkinter

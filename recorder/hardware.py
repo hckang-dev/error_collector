@@ -184,7 +184,7 @@ class ImuSerialBridge:
             raise RuntimeError("IMU port is empty.")
         self._ser = serial.Serial(self.port_name, self.baudrate, timeout=0.2)
         self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, name="error_collector-imu-reader", daemon=True)
+        self._thread = threading.Thread(target=self._loop, name="error-collector-imu-reader", daemon=True)
         self._thread.start()
         self.on_log(f"IMU connected: {self.port_name} @ {self.baudrate}")
 

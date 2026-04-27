@@ -23,7 +23,7 @@ class MergeResult:
 
 
 def load_timed_csv(path: Path) -> tuple[list[str], list[TimedRow]]:
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         fieldnames = list(reader.fieldnames or [])
         if "t" not in fieldnames:
@@ -83,6 +83,8 @@ def recorder_output_fields(recorder_fields: list[str]) -> list[str]:
             continue
         fields.append(field)
         seen.add(field)
+    # Preserve any recorder-side derived columns, including record_refiner
+    # model pose fields like mp{id}* and mq{id}*.
     for imu_id in (1, 2):
         source_fields = [f"imu{imu_id}_q{axis}" for axis in ("x", "y", "z", "w")]
         if all(field in recorder_fields for field in source_fields):

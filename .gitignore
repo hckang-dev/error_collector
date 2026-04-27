@@ -6,3 +6,8 @@ __pycache__/
 *.pyc
 venv/
 .env
+
+aruco_reader/videos/
+*.MOV
+*.mov
+*.mp4

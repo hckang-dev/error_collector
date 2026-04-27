@@ -1,87 +1,92 @@
 # error_collector
 
-ArUco 영상, 센서 recorder CSV, 정제(refine), 병합(merge), Genesis player 재생까지 이어지는 실험 데이터 수집/검증 도구 모음입니다.
+실험 데이터를 수집하고, 영상 기반 ArUco 추적 결과와 모터/IMU 기록을 정리한 뒤, 최종적으로 하나의 타임라인으로 합쳐 재생하는 도구 모음입니다.
 
-## 구성
+## Pipeline
 
-```text
-error_collector/
-  aruco_reader/     영상에서 ArUco marker pose CSV를 생성
-  aruco_refiner/    ArUco pose CSV의 튐값 제거, 투표 기반 검증, 짧은 결측 보간
-  recorder/         roll, segment, load, IMU quaternion 기록
-  merger/           recorder CSV와 refined ArUco CSV를 시간 기준으로 병합
-  player/           병합 CSV를 Genesis에서 재생하고 marker pose를 시각화
-```
-
-각 단계의 파일 선택기는 앞 단계 결과 폴더를 기본으로 엽니다.
+이 저장소의 흐름은 아래처럼 두 갈래로 진행된 뒤 하나로 합쳐집니다.
 
 ```text
-aruco_reader output      -> aruco_reader/records
-aruco_refiner input      -> aruco_reader/records
-aruco_refiner output     -> aruco_refiner/results
-recorder output          -> recorder/records
-merger recorder input    -> recorder/records
-merger aruco input       -> aruco_refiner/results
-merger output            -> merger/results
-player input             -> merger/results
+recorder -> record_refiner
+aruco_reader -> aruco_refiner
+                |
+                v
+      record_refiner + aruco_refiner
+                    -> merger
+                    -> player
 ```
 
-## 설치
-
-기본 Python 의존성:
-
-```bash
-pip install numpy opencv-python
-```
-
-player까지 사용할 경우:
-
-```bash
-pip install -r player/requirements.txt
-```
-
-GUI는 `tkinter`가 필요합니다. Ubuntu/Debian 계열에서는 보통 다음 패키지가 필요합니다.
-
-```bash
-sudo apt install python3-tk
-```
-
-## 실행 순서
-
-## 실행 결과만 빠르게 보기
-
-전체 pipeline을 다시 돌리지 않고 결과 재생만 보고 싶으면 player를 실행한 뒤 `testP.csv`를 열면 됩니다.
-
-```bash
-cd error_collector/player
-python3 app.py
-```
-
-파일 선택 창에서 다음 파일을 선택합니다.
+조금 더 풀어서 쓰면 다음과 같습니다.
 
 ```text
-error_collector/merger/results/testP.csv
+1) recorder
+   -> 모터 값, 로드 값, IMU quaternion 기록
+   -> recorder/records/*.csv
+
+2) record_refiner
+   -> recorder CSV를 기반으로 모델상 ArUco 마커의 이론 위치/자세 계산
+   -> record_refiner/results/*.csv
+
+3) aruco_reader
+   -> 동영상을 읽어 ArUco 마커 위치/자세 추출
+   -> aruco_reader/records/*.csv
+
+4) aruco_refiner
+   -> 영상 기반 ArUco 결과를 필터링하고 결측을 일부 보정
+   -> aruco_refiner/results/*.csv
+
+5) merger
+   -> record_refiner 결과와 aruco_refiner 결과를 시간축 기준으로 병합
+   -> merger/results/*.csv
+
+6) player
+   -> 병합 CSV를 읽어 Genesis에서 재생 및 시각화
 ```
 
-CLI로 바로 열 수도 있습니다.
+## 역할 소개
 
-```bash
-cd error_collector/player
-python3 app.py --file ../merger/results/testP.csv
+### recorder
+
+로봇 하드웨어에서 측정한 값을 기록합니다.
+
+- 모터 제어값 `roll`, `seg1`, `seg2`
+- 모터 부하값 `load1`, `load2`
+- 두 개의 IMU quaternion
+
+출력 CSV 예시는 다음과 같습니다.
+
+```text
+t,roll,seg1,seg2,load1,load2,
+imu1_qw,imu1_qx,imu1_qy,imu1_qz,
+imu2_qw,imu2_qx,imu2_qy,imu2_qz
 ```
 
-### 1. ArUco 영상 읽기
+### record_refiner
 
-```bash
-cd error_collector/aruco_reader
-python3 app.py
+`recorder`가 저장한 모터 값을 바탕으로, 로봇 모델 기준 ArUco 마커들의 이론상 위치와 자세를 계산합니다.
+
+- 입력: `recorder/records/*.csv`
+- 출력: `record_refiner/results/*.csv`
+- 추가되는 컬럼:
+
+```text
+mp{id}x, mp{id}y, mp{id}z,
+mq{id}x, mq{id}y, mq{id}z, mq{id}w
 ```
 
-- 비디오를 선택합니다.
-- Detect를 실행합니다.
-- Export하면 CSV가 `aruco_reader/records`에 저장됩니다.
+즉, 실제 영상에서 본 마커 위치가 아니라, 현재 모터 상태라면 모델상 마커가 어디에 있어야 하는지를 계산해 붙입니다.
 
-ArUco reader 출력 포맷은 marker 위치와 quaternion을 그대로 저장합니다.
+### aruco_reader
+
+동영상을 읽어 ArUco 마커를 검출하고, 각 프레임에서 마커 위치와 자세를 기록합니다.
+
+- 입력: 비디오 파일
+- 출력: `aruco_reader/records/*.csv`
+- 사용 마커:
+  - sync marker: `DICT_5X5_50`
+  - measurement marker: `DICT_4X4_50`
+
+출력 CSV에는 카메라 기준 marker pose가 저장됩니다.
 
 ```text
 t,
@@ -90,197 +95,154 @@ p1x,p1y,p1z,q1x,q1y,q1z,q1w,
 ...
 ```
 
-카메라 기준값은 고정입니다.
+### aruco_refiner
 
-```text
-pCAM = (0, 0, 0)
-qCAM = (0, 0, 0, 1)
-```
+`aruco_reader`가 만든 영상 기반 마커 추적 결과를 정제합니다.
 
-marker quaternion은 `(x, y, z, w)` 순서입니다.
+- frame 간 갑작스러운 position jump 제거
+- quaternion angle jump 제거
+- 친구 마커 그룹 투표로 이상값 완화
+- 짧은 결측 구간 보간
 
-### 2. Recorder 실행
-
-```bash
-cd error_collector/recorder
-python3 app.py
-```
-
-recorder는 roll, segment, load, IMU quaternion 등을 CSV로 저장합니다.
-
-```text
-t,roll,seg1,seg2,load1,load2,
-imu1_qw,imu1_qx,imu1_qy,imu1_qz,
-imu2_qw,imu2_qx,imu2_qy,imu2_qz
-```
-
-출력은 `recorder/records`에 저장됩니다.
-
-### 3. ArUco Refiner
-
-```bash
-cd error_collector/aruco_refiner
-python3 app.py
-```
-
-파일 선택기는 `aruco_reader/records`를 기본으로 엽니다. 정제 결과는 `aruco_refiner/results`에 저장됩니다.
-
-CLI도 사용할 수 있습니다.
-
-```bash
-python3 -m error_collector.aruco_refiner.app input.csv output_refined.csv \
-  --max-angle-deg 75 \
-  --max-position-step-m 0.10 \
-  --reset-gap-rows 5 \
-  --interpolate-gap-rows 2 \
-  --vote-min-support 2 \
-  --vote-max-delta-step-m 0.04 \
-  --vote-max-delta-angle-deg 30
-```
-
-Refiner는 기존 marker pose 컬럼을 유지하고 진단 컬럼을 추가합니다.
+출력은 원래 ArUco pose 컬럼을 유지하면서 진단 컬럼을 추가합니다.
 
 ```text
 valid{id},quality{id},reason{id},angle_jump{id},pos_step{id}
 ```
 
-주요 reason:
+즉, 영상에서 검출한 값 중 튀는 값을 줄이고, 후속 병합과 재생에 더 안정적인 CSV를 만드는 단계입니다.
+
+### merger
+
+`record_refiner` 결과와 `aruco_refiner` 결과를 시간 기준으로 합칩니다.
+
+- recorder 계열 타임라인을 기준으로 사용
+- 가장 가까운 ArUco timestamp를 찾아 붙임
+- 허용 오차는 ArUco frame 간격으로부터 half-frame 수준으로 추정
+
+출력 CSV에는 다음 정보가 함께 들어갑니다.
+
+- recorder 쪽 모터/로드/IMU 값
+- record_refiner가 계산한 모델 기반 마커 pose
+- aruco_refiner가 정제한 영상 기반 마커 pose
+
+### player
+
+`merger`가 만든 최종 CSV를 읽어 Genesis 환경에서 재생합니다.
+
+- 로봇 URDF 로드
+- recorder 기반 관절 상태 재생
+- 영상 기반 ArUco 마커와 모델 기반 마커를 함께 시각화
+
+실험 결과를 눈으로 비교하면서, 실제 검출값과 모델 계산값이 얼마나 맞는지 보는 용도입니다.
+
+## 폴더 구성
 
 ```text
-first           첫 유효 pose
-accepted        자기 과거 기준 통과
-voted           자기 과거 기준으로는 튀었지만 친구 marker 투표로 통과
-vote_mismatch   자기 과거 기준은 통과했지만 친구 marker들과 움직임이 맞지 않음
-position_jump   위치 변화량 초과
-angle_jump      quaternion 회전 변화량 초과
-missing         pose 없음
-interpolated    짧은 결측 보간
-reset           긴 결측 뒤 재획득
+error_collector/
+  recorder/         모터/IMU 기록
+  record_refiner/   모터값 기반 이론 마커 pose 계산
+  aruco_reader/     영상에서 ArUco marker pose 추출
+  aruco_refiner/    ArUco 결과 필터링 및 보정
+  merger/           두 결과를 시간축 기준으로 병합
+  player/           병합 결과 재생
 ```
 
-#### 투표 기능
-
-marker는 3개씩 친구 그룹을 이룹니다.
+## 입출력 경로
 
 ```text
-(1,2,3), (4,5,6), (7,8,9), (10,11,12)
+recorder output          -> recorder/records
+record_refiner input     -> recorder/records
+record_refiner output    -> record_refiner/results
+
+aruco_reader output      -> aruco_reader/records
+aruco_refiner input      -> aruco_reader/records
+aruco_refiner output     -> aruco_refiner/results
+
+merger recorder input    -> record_refiner/results
+merger aruco input       -> aruco_refiner/results
+merger output            -> merger/results
+
+player input             -> merger/results
 ```
 
-각 marker는 자기 자신의 마지막 accepted pose와 현재 pose를 비교하고, 동시에 같은 그룹 친구들의 현재 움직임과 비교합니다.
+## 설치
 
-- 자기 과거 기준으로는 튀었지만 친구들과 같은 방향/크기로 움직였으면 `voted`로 통과합니다.
-- 자기 과거 기준으로는 정상이어도 친구들과 혼자 다른 움직임이면 `vote_mismatch`로 reject합니다.
-- 친구 정보가 부족하면 자기 과거 기준만 사용합니다.
-
-기본 위치 jump 허용값은 `0.10 m`입니다. 즉 마지막 accepted pose 대비 10cm 초과로 튀면 의심합니다.
-
-### 4. Merger
+루트에서 다음처럼 설치하면 됩니다.
 
 ```bash
-cd error_collector/merger
+pip install -r requirements.txt
+```
+
+GUI 앱 실행에는 `tkinter`가 필요합니다. Ubuntu/Debian 계열에서는 보통 다음 패키지를 설치합니다.
+
+```bash
+sudo apt install python3-tk
+```
+
+## 실행 순서
+
+### 1. recorder
+
+```bash
+cd recorder
 python3 app.py
 ```
 
-파일 선택기는 다음 위치를 기본으로 엽니다.
+기록 결과는 `recorder/records`에 저장됩니다.
 
-```text
-Recorder CSV       -> recorder/records
-Refined ArUco CSV  -> aruco_refiner/results
-```
-
-recorder row를 기준 timeline으로 사용하고, 각 recorder timestamp에 가장 가까운 ArUco row를 붙입니다. 허용 오차는 ArUco CSV frame 간격에서 추론한 half-frame입니다.
-
-출력은 `merger/results`에 저장됩니다.
-
-merged CSV에서는 IMU quaternion을 사용하기 편한 순서로 재배열합니다.
-
-```text
-qIMU1x,qIMU1y,qIMU1z,qIMU1w
-qIMU2x,qIMU2y,qIMU2z,qIMU2w
-```
-
-ArUco pose는 다음 형태로 유지됩니다.
-
-```text
-pCAMx,pCAMy,pCAMz,qCAMx,qCAMy,qCAMz,qCAMw
-p{id}x,p{id}y,p{id}z,q{id}x,q{id}y,q{id}z,q{id}w
-```
-
-### 5. Player
+### 2. record_refiner
 
 ```bash
-cd error_collector/player
+cd record_refiner
 python3 app.py
 ```
 
-파일 선택기는 `merger/results`를 기본으로 엽니다.
+정제 결과는 `record_refiner/results`에 저장됩니다.
 
-옵션:
-
-```bash
-python3 app.py --file /path/to/merged.csv
-python3 app.py --urdf /path/to/other_robot.urdf
-python3 app.py --gpu
-```
-
-player는 `q{id}x/y/z/w`를 `(x,y,z,w)` quaternion으로 읽습니다. 구형 `v{id}x/y/z` normal vector 컬럼도 fallback으로 읽을 수 있습니다.
-
-marker 시각화:
-
-- 17mm filled square marker plate
-- marker local `+Z` normal stick
-- normal stick 길이: 10mm
-
-## 권장 Refiner 설정
-
-일반적인 시작점:
+### 3. aruco_reader
 
 ```bash
---max-angle-deg 45 \
---max-position-step-m 0.10 \
---reset-gap-rows 5 \
---interpolate-gap-rows 2 \
---vote-min-support 2 \
---vote-max-delta-step-m 0.04 \
---vote-max-delta-angle-deg 30
+cd aruco_reader
+python3 app.py
 ```
 
-느린 움직임/고정 실험에서 더 빡세게 잡을 때:
+비디오를 열고 Detect 후 Export하면 `aruco_reader/records`에 저장됩니다.
+
+### 4. aruco_refiner
 
 ```bash
---max-angle-deg 30 \
---max-position-step-m 0.06 \
---vote-max-delta-step-m 0.025 \
---vote-max-delta-angle-deg 20
+cd aruco_refiner
+python3 app.py
 ```
 
-빠른 움직임이나 노이즈가 큰 영상에서 더 널널하게 잡을 때:
+정제 결과는 `aruco_refiner/results`에 저장됩니다.
+
+### 5. merger
 
 ```bash
---max-angle-deg 60 \
---max-position-step-m 0.15 \
---vote-max-delta-step-m 0.06 \
---vote-max-delta-angle-deg 40
+cd merger
+python3 app.py
 ```
 
-진단 컬럼을 보고 조정합니다.
+병합 결과는 `merger/results`에 저장됩니다.
 
-```text
-vote_mismatch가 너무 많음 -> vote-max-delta-step-m 또는 vote-max-delta-angle-deg 증가
-position_jump가 너무 많음 -> max-position-step-m 증가
-튀는 회전이 살아남음 -> max-angle-deg 감소
-interpolated가 너무 많음 -> interpolate-gap-rows 감소
+### 6. player
+
+```bash
+cd player
+python3 app.py
 ```
 
-## 좌표와 quaternion convention
+필요하면 파일을 바로 지정해서 열 수 있습니다.
+
+```bash
+python3 app.py --file ../merger/results/testP.csv
+```
+
+## 데이터 해석 메모
 
 - 위치 단위는 meter입니다.
-- marker quaternion은 `(x, y, z, w)` 순서입니다.
-- Genesis 내부 link quaternion은 필요한 곳에서 `(w, x, y, z)`로 변환합니다.
-- `pCAM=(0,0,0)`, `qCAM=(0,0,0,1)`은 OpenCV camera origin/orientation을 나타내는 고정 기준입니다.
-
-## 주의사항
-
-- Refiner는 새 `p/q` 포맷 CSV를 기준으로 동작합니다. 구형 `p/v` CSV는 player fallback에서는 읽을 수 있지만, refiner 대상은 아닙니다.
-- Refiner는 `aruco_reader -> aruco_refiner -> merger -> player` 순서로 사용하는 것을 전제로 합니다.
-- Genesis가 marker plate entity에서 solver 문제를 일으키는 환경이라면, marker plate 생성 방식을 debug-only fallback으로 바꿔야 할 수 있습니다.
+- ArUco quaternion 순서는 `(x, y, z, w)`입니다.
+- recorder 원본 IMU는 `imu*_qw/qx/qy/qz`로 저장되며, merger 이후에는 `qIMU*x/y/z/w` 형태로도 정리됩니다.
+- player는 영상 기반 marker pose와 모델 기반 marker pose를 함께 읽어 비교 시각화합니다.

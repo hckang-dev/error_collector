@@ -18,7 +18,7 @@ class MergerApp:
         self.root.geometry("980x620")
 
         self.base_dir = Path(__file__).resolve().parent
-        self.recorder_dir = self.base_dir.parent / "recorder" / "records"
+        self.recorder_dir = self.base_dir.parent / "record_refiner" / "results"
         self.aruco_dir = self.base_dir.parent / "aruco_refiner" / "results"
         self.output_dir = self.base_dir / "results"
         self.recorder_dir.mkdir(parents=True, exist_ok=True)
@@ -40,7 +40,7 @@ class MergerApp:
         top.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
         top.columnconfigure(1, weight=1)
 
-        tk.Label(top, text="Recorder CSV").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        tk.Label(top, text="Refined Recorder CSV").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         tk.Entry(top, textvariable=self.recorder_path_var).grid(row=0, column=1, sticky="ew", padx=5, pady=5)
         tk.Button(top, text="Browse", command=self.browse_recorder).grid(row=0, column=2, padx=5, pady=5)
 
@@ -64,10 +64,11 @@ class MergerApp:
             justify="left",
             anchor="w",
             text=(
-                f"Recorder browser starts at {self.recorder_dir}\n"
+                f"Refined recorder browser starts at {self.recorder_dir}\n"
                 f"Aruco browser starts at {self.aruco_dir}\n"
-                "Recorder rows are the base timeline.\n"
-                "Each recorder timestamp is matched to the nearest aruco timestamp\n"
+                "Refined recorder rows are the base timeline.\n"
+                "Model-predicted marker columns from record_refiner are preserved as-is.\n"
+                "Each refined recorder timestamp is matched to the nearest aruco timestamp\n"
                 "within +/- 0.5 frame inferred from aruco CSV spacing."
             ),
         ).pack(fill="x", padx=8, pady=8)
@@ -85,7 +86,7 @@ class MergerApp:
 
     def browse_recorder(self) -> None:
         path = filedialog.askopenfilename(
-            title="Select Recorder CSV",
+            title="Select Refined Recorder CSV",
             initialdir=str(self.recorder_dir),
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
         )
@@ -124,7 +125,7 @@ class MergerApp:
         aruco_path = self.aruco_path_var.get().strip()
         output_path = self.output_path_var.get().strip()
         if not recorder_path or not aruco_path or not output_path:
-            messagebox.showerror("Merge", "Recorder CSV, Aruco CSV, and Output CSV are required.")
+            messagebox.showerror("Merge", "Refined recorder CSV, aruco CSV, and output CSV are required.")
             return
         try:
             result = merge_csv_files(Path(recorder_path), Path(aruco_path), Path(output_path))
