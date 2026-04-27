@@ -1,6 +1,7 @@
 # error_collector
 
 실험 데이터를 수집하고, 영상 기반 ArUco 추적 결과와 모터/IMU 기록을 정리한 뒤, 최종적으로 하나의 타임라인으로 합쳐 재생하는 도구 모음입니다.
+https://github.com/user-attachments/assets/21ec4aa6-f749-42f2-916c-3e570469d0c6
 
 ## Pipeline
 
