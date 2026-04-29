@@ -276,6 +276,52 @@ python -m merger.merge_marker_core --record ./record_refiner/results/run01.csv -
 python -m dataset.build_shape_residual_dataset --input ./merger/results/run01_merged_shape.csv --out ./dataset/run01_shape_residual.npz
 ```
 
+## 신규: frame+sensor raw dataset 수집
+
+마커 검출/GT 생성 이전 단계로, 카메라 프레임과 센서값을 시간 동기화해 raw multimodal dataset을 만들 수 있습니다.
+
+- 패키지: `frame_sensor_dataset`
+- 출력 구조:
+
+```text
+datasets/run01/
+  frames/
+    frame_000000.jpg
+    ...
+  manifest.csv
+  manifest.jsonl
+```
+
+- manifest 핵심 컬럼:
+  - `frame_path`, `t_frame_wall`, `t_frame_mono`
+  - `t_sensor_mono`, `dt_sensor_sec`, `sync_valid`
+  - 모터/전류/전압/IMU 필드
+
+비디오 + 센서 로그 동기화 예시:
+
+```bash
+python -m frame_sensor_dataset.collect_from_video \
+  --video ./videos/run01.mp4 \
+  --sensor-log ./recorder/records/run01.csv \
+  --out-dir ./datasets/run01 \
+  --sync-tol-sec 0.05 \
+  --save-every-n 1 \
+  --image-ext jpg
+```
+
+라이브 카메라 + 센서 스트림 예시:
+
+```bash
+python -m frame_sensor_dataset.collect_live \
+  --camera-index 0 \
+  --sensor-zmq tcp://127.0.0.1:5556 \
+  --imu-port /dev/ttyACM0 \
+  --out-dir ./datasets/run01 \
+  --sync-tol-sec 0.05 \
+  --save-every-n 1 \
+  --image-ext jpg
+```
+
 ## 데이터 해석 메모
 
 - 위치 단위는 meter입니다.
