@@ -365,17 +365,39 @@ class RecordApp:
                 self.sample_count_var.get(),
             )
         )
+        def _fmt_opt(value: float | None, digits: int = 3) -> str:
+            if value is None:
+                return "n/a"
+            return f"{float(value):.{digits}f}"
+
+        imu1 = snap.imu1
+        imu2 = snap.imu2
         self.imu_value_var.set(
-            "IMU1=(%.3f, %.3f, %.3f, %.3f)  IMU2=(%.3f, %.3f, %.3f, %.3f)"
+            "IMU1 t=%s Q=(%s,%s,%s,%s) G=(%s,%s,%s) W=(%s,%s,%s) | "
+            "IMU2 t=%s Q=(%s,%s,%s,%s) G=(%s,%s,%s) W=(%s,%s,%s)"
             % (
-                snap.imu1.qw,
-                snap.imu1.qx,
-                snap.imu1.qy,
-                snap.imu1.qz,
-                snap.imu2.qw,
-                snap.imu2.qx,
-                snap.imu2.qy,
-                snap.imu2.qz,
+                _fmt_opt(imu1.timestamp, 3),
+                _fmt_opt(imu1.qw, 3),
+                _fmt_opt(imu1.qx, 3),
+                _fmt_opt(imu1.qy, 3),
+                _fmt_opt(imu1.qz, 3),
+                _fmt_opt(imu1.gvx, 3),
+                _fmt_opt(imu1.gvy, 3),
+                _fmt_opt(imu1.gvz, 3),
+                _fmt_opt(imu1.gx, 3),
+                _fmt_opt(imu1.gy, 3),
+                _fmt_opt(imu1.gz, 3),
+                _fmt_opt(imu2.timestamp, 3),
+                _fmt_opt(imu2.qw, 3),
+                _fmt_opt(imu2.qx, 3),
+                _fmt_opt(imu2.qy, 3),
+                _fmt_opt(imu2.qz, 3),
+                _fmt_opt(imu2.gvx, 3),
+                _fmt_opt(imu2.gvy, 3),
+                _fmt_opt(imu2.gvz, 3),
+                _fmt_opt(imu2.gx, 3),
+                _fmt_opt(imu2.gy, 3),
+                _fmt_opt(imu2.gz, 3),
             )
         )
         if (
