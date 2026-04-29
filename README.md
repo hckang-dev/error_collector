@@ -7,9 +7,10 @@
 ## 파일 흐름
 
 ```text
-recorder ─> record_refiner ──────┐
-aruco_reader ─> aruco_refiner ───┤
-                                 └──────> merger ─> player
+recorder ─> record_refiner ────────────────┐
+aruco_reader ─> aruco_refiner ───────────┐ │
+video ─> marker_reader ─> marker_refiner ─> vision_shape_builder ─┤ └─> merger ─> player
+                                           └───────────────────────┘
 실행은 각 폴더 내의 app.py로
 ```
 
@@ -27,10 +28,14 @@ aruco_reader ─> aruco_refiner ───┤
    -> 영상 기반 ArUco 결과를 필터링하고 결측을 일부 보정
 
 3. merger
-   -> record_refiner 결과와 aruco_refiner 결과를 시간축 기준으로 병합
+   -> (Aruco 경로) record_refiner + aruco_refiner 병합
+   -> (Shape 경로) record_refiner + vision_shape_builder 병합
 
 4. player
    -> 병합 CSV를 읽어 Genesis에서 재생 및 시각화
+
+5. dataset
+   -> shape residual 학습용 NPZ 데이터셋 생성
 ```
 
 ## 역할 소개
@@ -118,6 +123,8 @@ valid{id},quality{id},reason{id},angle_jump{id},pos_step{id}
 - record_refiner가 계산한 모델 기반 마커 pose
 - aruco_refiner가 정제한 영상 기반 마커 pose
 
+또한 `merge_marker_core.py`를 통해 `record_refiner`와 `vision_shape_builder` 결과를 시간 정렬 병합할 수 있습니다.
+
 ### player
 
 `merger`가 만든 최종 CSV를 읽어 Genesis 환경에서 재생합니다.
@@ -135,8 +142,13 @@ error_collector/
   record_refiner/   모터값 기반 이론 마커 pose 계산
   aruco_reader/     영상에서 ArUco marker pose 추출
   aruco_refiner/    ArUco 결과 필터링 및 보정
+  marker_reader/    노란 스티커 contour 검출
+  marker_refiner/   스티커 정렬/추적/보간 정제
+  vision_shape_builder/ pixel shape -> metric shape 변환
   merger/           두 결과를 시간축 기준으로 병합
   player/           병합 결과 재생
+  dataset/          shape residual NPZ 생성
+  docs/             파이프라인 문서
 ```
 
 ## 입출력 경로
@@ -150,11 +162,20 @@ aruco_reader output      -> aruco_reader/records
 aruco_refiner input      -> aruco_reader/records
 aruco_refiner output     -> aruco_refiner/results
 
+marker_reader output     -> marker_reader/records
+marker_refiner input     -> marker_reader/records
+marker_refiner output    -> marker_refiner/results
+vision_shape_builder input  -> marker_refiner/results
+vision_shape_builder output -> vision_shape_builder/results
+
 merger recorder input    -> record_refiner/results
 merger aruco input       -> aruco_refiner/results
+merger vision-shape input -> vision_shape_builder/results
 merger output            -> merger/results
 
 player input             -> merger/results
+dataset input            -> merger/results
+dataset output           -> dataset/*.npz
 ```
 
 ## 설치
