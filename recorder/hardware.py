@@ -54,6 +54,19 @@ IMU_PATTERN = re.compile(
 IMU_DATA_PATTERN = re.compile(r"IMU(?P<idx>[12])_DATA,(?P<csv>.+)$", re.IGNORECASE)
 
 
+def _try_parse_float_tokens(tokens: list[str]) -> list[float] | None:
+    values: list[float] = []
+    for token in tokens:
+        token = str(token).strip()
+        if not token:
+            return None
+        try:
+            values.append(float(token))
+        except Exception:
+            return None
+    return values
+
+
 def default_config_path() -> Path:
     return Path(__file__).resolve()
 
@@ -311,12 +324,10 @@ class ImuSerialBridge:
         target.updated_at = float(now)
 
     def _apply_data_csv(self, idx: int, parts: list[str], now: float) -> None:
-        floats: list[float] = []
-        for token in parts:
-            token = str(token).strip()
-            if not token:
-                continue
-            floats.append(float(token))
+        parsed = _try_parse_float_tokens(parts)
+        if parsed is None:
+            return
+        floats = parsed
         if len(floats) < 23:
             return
         target = self.imu1 if int(idx) == 1 else self.imu2
@@ -370,9 +381,77 @@ class ImuSerialBridge:
         target.mz = float(mz)
         target.updated_at = float(now)
 
+    def _apply_dual_imu_csv_row(self, floats: list[float], now: float) -> bool:
+        # dual_imu.ino format:
+        # tx_ms,seq,
+        # t1_mcu_ms,bno1_us,new1,qw1,qx1,qy1,qz1,quatAcc1,gravAcc1,gyroAcc1,gvx1,gvy1,gvz1,gx1,gy1,gz1,lax1,lay1,laz1,ax1,ay1,az1,mx1,my1,mz1,
+        # t2_mcu_ms,bno2_us,new2,qw2,qx2,qy2,qz2,quatAcc2,gravAcc2,gyroAcc2,gvx2,gvy2,gvz2,gx2,gy2,gz2,lax2,lay2,laz2,ax2,ay2,az2,mx2,my2,mz2
+        if len(floats) < 52:
+            return False
+        imu_block_len = 25
+        imu1 = floats[2 : 2 + imu_block_len]
+        imu2 = floats[2 + imu_block_len : 2 + imu_block_len * 2]
+        if len(imu1) < imu_block_len or len(imu2) < imu_block_len:
+            return False
+        for idx, block in ((1, imu1), (2, imu2)):
+            (
+                t_mcu_ms,
+                _bno_us,
+                _new_any,
+                qw,
+                qx,
+                qy,
+                qz,
+                quat_acc,
+                grav_acc,
+                gyro_acc,
+                gvx,
+                gvy,
+                gvz,
+                gx,
+                gy,
+                gz,
+                lax,
+                lay,
+                laz,
+                ax,
+                ay,
+                az,
+                mx,
+                my,
+                mz,
+            ) = block
+            target = self.imu1 if idx == 1 else self.imu2
+            target.timestamp = float(t_mcu_ms) * 0.001
+            target.gvx = float(gvx)
+            target.gvy = float(gvy)
+            target.gvz = float(gvz)
+            target.gx = float(gx)
+            target.gy = float(gy)
+            target.gz = float(gz)
+            target.qw = float(qw)
+            target.qx = float(qx)
+            target.qy = float(qy)
+            target.qz = float(qz)
+            target.quatAcc = float(quat_acc)
+            target.gravAcc = float(grav_acc)
+            target.gyroAcc = float(gyro_acc)
+            target.lax = float(lax)
+            target.lay = float(lay)
+            target.laz = float(laz)
+            target.ax = float(ax)
+            target.ay = float(ay)
+            target.az = float(az)
+            target.mx = float(mx)
+            target.my = float(my)
+            target.mz = float(mz)
+            target.updated_at = float(now)
+        return True
+
     def _handle_line(self, text: str) -> None:
         now = time.time()
-        data_match = IMU_DATA_PATTERN.match(text.strip())
+        stripped = text.strip()
+        data_match = IMU_DATA_PATTERN.match(stripped)
         with self._lock:
             if data_match is not None:
                 idx = int(data_match.group("idx"))
@@ -380,6 +459,11 @@ class ImuSerialBridge:
                 parts = [p.strip() for p in csv_part.split(",")]
                 self._apply_data_csv(idx, parts, now)
                 return
+            if "," in stripped and not stripped.lower().startswith("imu"):
+                parts = [p.strip() for p in stripped.split(",")]
+                parsed = _try_parse_float_tokens(parts)
+                if parsed is not None and self._apply_dual_imu_csv_row(parsed, now):
+                    return
         matches = list(IMU_PATTERN.finditer(text))
         if not matches:
             return
