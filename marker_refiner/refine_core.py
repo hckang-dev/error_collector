@@ -57,26 +57,10 @@ def _extract_detections(row: dict[str, str], max_nodes: int) -> tuple[np.ndarray
     return np.column_stack([np.asarray(xs, dtype=np.float64), np.asarray(ys, dtype=np.float64)]), np.asarray(cfs, dtype=np.float64)
 
 
-def _extract_anchor(row: dict[str, str]) -> np.ndarray:
-    sx = str(row.get("shoulder_x", "")).strip()
-    sy = str(row.get("shoulder_y", "")).strip()
-    if not sx or not sy:
-        return np.zeros((0,), dtype=np.float64)
-    return np.asarray([float(sx), float(sy)], dtype=np.float64)
-
-
 def _sort_base_to_tip(xy: np.ndarray, conf: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     if xy.shape[0] == 0:
         return xy, conf
     order = np.lexsort((xy[:, 0], xy[:, 1]))
-    return xy[order].copy(), conf[order].copy()
-
-
-def _sort_by_anchor(xy: np.ndarray, conf: np.ndarray, anchor_xy: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    if xy.shape[0] == 0 or anchor_xy.shape[0] != 2:
-        return _sort_base_to_tip(xy, conf)
-    d = np.linalg.norm(xy - anchor_xy.reshape(1, 2), axis=1)
-    order = np.argsort(d)
     return xy[order].copy(), conf[order].copy()
 
 
@@ -166,16 +150,13 @@ def refine_marker_csv(input_csv: Path, output_csv: Path, params: RefineParams) -
     cf_seq: List[np.ndarray] = []
     for row in rows:
         xy, cf = _extract_detections(row, params.max_nodes)
-        anchor_xy = _extract_anchor(row)
         mask = np.isfinite(cf) & (cf >= params.min_node_conf)
         xy = xy[mask]
         cf = cf[mask]
         if prev_xy.shape[0] == 0:
-            xy, cf = _sort_by_anchor(xy, cf, anchor_xy)
+            xy, cf = _sort_base_to_tip(xy, cf)
         else:
             xy, cf = _order_track(prev_xy, xy, cf)
-            if anchor_xy.shape[0] == 2:
-                xy, cf = _sort_by_anchor(xy, cf, anchor_xy)
         xy_seq.append(xy)
         cf_seq.append(cf)
         if xy.shape[0] > 0:

@@ -14,7 +14,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Refine yellow marker centroid CSV.")
     p.add_argument("--input", type=str, required=True)
     p.add_argument("--out", type=str, required=True)
-    p.add_argument("--max-nodes", type=int, default=10)
+    p.add_argument("--max-nodes", type=int, default=11)
     p.add_argument("--min-mean-conf", type=float, default=0.25)
     p.add_argument("--min-node-conf", type=float, default=0.12)
     p.add_argument("--jump-px", type=float, default=40.0)

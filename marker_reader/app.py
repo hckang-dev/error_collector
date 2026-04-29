@@ -27,11 +27,6 @@ def _row_fields(max_nodes: int) -> List[str]:
         "t_video_sec",
         "n_detected",
         "mean_conf",
-        "shoulder_x",
-        "shoulder_y",
-        "shoulder_area",
-        "shoulder_circularity",
-        "shoulder_conf",
         "validity",
         "sync_dt_sec",
     ]
@@ -51,7 +46,6 @@ def _row_fields(max_nodes: int) -> List[str]:
 def _blobs_to_row(
     frame_idx: int,
     t_video_sec: float,
-    shoulder_anchor: YellowBlob | None,
     blobs: List[YellowBlob],
     max_nodes: int,
 ) -> dict[str, str]:
@@ -64,18 +58,6 @@ def _blobs_to_row(
         "validity": "true" if len(blobs) >= max_nodes else "false",
         "sync_dt_sec": "",
     }
-    if shoulder_anchor is not None:
-        row["shoulder_x"] = f"{shoulder_anchor.cx:.4f}"
-        row["shoulder_y"] = f"{shoulder_anchor.cy:.4f}"
-        row["shoulder_area"] = f"{shoulder_anchor.area:.4f}"
-        row["shoulder_circularity"] = f"{shoulder_anchor.circularity:.6f}"
-        row["shoulder_conf"] = f"{shoulder_anchor.conf:.6f}"
-    else:
-        row["shoulder_x"] = ""
-        row["shoulder_y"] = ""
-        row["shoulder_area"] = ""
-        row["shoulder_circularity"] = ""
-        row["shoulder_conf"] = ""
     for i in range(max_nodes):
         if i < len(blobs):
             b = blobs[i]
@@ -119,25 +101,22 @@ def run_capture(args: argparse.Namespace) -> int:
             ok, frame = cap.read()
             if not ok:
                 break
-            split = detect_yellow_features(
+            blobs = detect_yellow_features(
                 frame,
                 hsv_lo,
                 hsv_hi,
                 area_min=float(args.area_min),
                 area_max=float(args.area_max),
                 marker_aspect_max=float(args.marker_aspect_max),
-                anchor_aspect_min=float(args.anchor_aspect_min),
                 min_circularity=float(args.min_circularity),
-                anchor_max_circularity=float(args.anchor_max_circularity),
                 max_markers=max_nodes * 4,
             )
-            blobs = split.circular_markers
             blobs = sorted(blobs, key=lambda b: b.cy)
             blobs = blobs[:max_nodes]
             t_video_sec = float(frame_idx) / fps
-            writer.writerow(_blobs_to_row(frame_idx, t_video_sec, split.shoulder_anchor, blobs, max_nodes))
+            writer.writerow(_blobs_to_row(frame_idx, t_video_sec, blobs, max_nodes))
             if args.preview:
-                vis = draw_preview(frame, split.shoulder_anchor, blobs, hsv_lo, hsv_hi)
+                vis = draw_preview(frame, blobs, hsv_lo, hsv_hi)
                 cv2.imshow("marker_reader", vis)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
@@ -155,15 +134,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     src.add_argument("--video", type=str, default=None, help="Video file path")
     src.add_argument("--camera", type=int, default=None, help="Camera index")
     p.add_argument("--out", type=str, required=True, help="Output CSV path")
-    p.add_argument("--max-nodes", type=int, default=10)
+    p.add_argument("--max-nodes", type=int, default=11)
     p.add_argument("--hsv-lower", type=str, default="20,100,100", help="H,S,V lower (comma)")
     p.add_argument("--hsv-upper", type=str, default="35,255,255", help="H,S,V upper (comma)")
     p.add_argument("--area-min", type=float, default=80.0)
     p.add_argument("--area-max", type=float, default=8000.0)
     p.add_argument("--marker-aspect-max", type=float, default=1.6)
-    p.add_argument("--anchor-aspect-min", type=float, default=1.8)
     p.add_argument("--min-circularity", type=float, default=0.45)
-    p.add_argument("--anchor-max-circularity", type=float, default=0.55)
     p.add_argument("--preview", action="store_true")
     return p
 

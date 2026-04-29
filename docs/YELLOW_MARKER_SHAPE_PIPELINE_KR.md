@@ -12,11 +12,11 @@
 ## 단계별 실행
 
 ```bash
-python -m marker_reader.app --video ./videos/run01.mp4 --out ./marker_reader/records/run01.csv --max-nodes 10 --preview
+python -m marker_reader.app --video ./videos/run01.mp4 --out ./marker_reader/records/run01.csv --max-nodes 11 --preview
 ```
 
 ```bash
-python -m marker_refiner.app --input ./marker_reader/records/run01.csv --out ./marker_refiner/results/run01_refined.csv --max-nodes 10
+python -m marker_refiner.app --input ./marker_reader/records/run01.csv --out ./marker_refiner/results/run01_refined.csv --max-nodes 11
 ```
 
 ```bash

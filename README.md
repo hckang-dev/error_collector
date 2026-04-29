@@ -256,9 +256,8 @@ python3 app.py --file ../merger/results/testP.csv
 
 ArUco 파이프라인과 병렬로 노란색 스티커 기반 shape GT 경로를 추가했습니다.
 
-- `node0`: 움직이지 않는 shoulder anchor (길쭉한 노란 스티커)
-- `node1~node10`: 도넛형 노란 원형 관절 스티커
-- `marker_reader`는 yellow contour를 `shoulder_anchor`와 `circular_marker`로 분리합니다.
+- `node0~node10`: 도넛형 노란 원형 관절 스티커
+- `marker_reader`는 모든 노드를 원형 마커로 동일하게 검출합니다.
 - 원형은 도넛 내부 hole을 별도 마커로 세지 않도록 외곽 contour 기준으로 처리합니다.
 
 - `marker_reader -> marker_refiner -> vision_shape_builder`
@@ -270,8 +269,8 @@ ArUco 파이프라인과 병렬로 노란색 스티커 기반 shape GT 경로를
 빠른 실행 예시는 다음과 같습니다.
 
 ```bash
-python -m marker_reader.app --video ./videos/run01.mp4 --out ./marker_reader/records/run01.csv --max-nodes 10 --preview
-python -m marker_refiner.app --input ./marker_reader/records/run01.csv --out ./marker_refiner/results/run01_refined.csv --max-nodes 10
+python -m marker_reader.app --video ./videos/run01.mp4 --out ./marker_reader/records/run01.csv --max-nodes 11 --preview
+python -m marker_refiner.app --input ./marker_reader/records/run01.csv --out ./marker_refiner/results/run01_refined.csv --max-nodes 11
 python -m vision_shape_builder.app --input ./marker_refiner/results/run01_refined.csv --out ./vision_shape_builder/results/run01_shape.csv --meters-per-pixel 0.001
 python -m merger.merge_marker_core --record ./record_refiner/results/run01.csv --vision ./vision_shape_builder/results/run01_shape.csv --out ./merger/results/run01_merged_shape.csv --sync-tol-sec 0.05
 python -m dataset.build_shape_residual_dataset --input ./merger/results/run01_merged_shape.csv --out ./dataset/run01_shape_residual.npz
