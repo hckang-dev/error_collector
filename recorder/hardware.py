@@ -51,6 +51,7 @@ IMU_PATTERN = re.compile(
     r"(?P<qz>[-+]?\d*\.?\d+)\s*\)",
     re.IGNORECASE,
 )
+IMU_DATA_PATTERN = re.compile(r"IMU(?P<idx>[12])_DATA,(?P<csv>.+)$", re.IGNORECASE)
 
 
 def default_config_path() -> Path:
@@ -127,6 +128,37 @@ class QuaternionSample:
 
 
 @dataclass
+class ImuSensorSample:
+    timestamp: Optional[float] = None
+    gvx: Optional[float] = None
+    gvy: Optional[float] = None
+    gvz: Optional[float] = None
+    gx: Optional[float] = None
+    gy: Optional[float] = None
+    gz: Optional[float] = None
+    qw: float = 0.0
+    qx: float = 0.0
+    qy: float = 0.0
+    qz: float = 0.0
+    quatAcc: Optional[float] = None
+    gravAcc: Optional[float] = None
+    gyroAcc: Optional[float] = None
+    lax: Optional[float] = None
+    lay: Optional[float] = None
+    laz: Optional[float] = None
+    ax: Optional[float] = None
+    ay: Optional[float] = None
+    az: Optional[float] = None
+    mx: Optional[float] = None
+    my: Optional[float] = None
+    mz: Optional[float] = None
+    updated_at: float = 0.0
+
+    def as_tuple(self) -> tuple[float, float, float, float]:
+        return (self.qw, self.qx, self.qy, self.qz)
+
+
+@dataclass
 class RobotPose:
     roll: float = 180.0
     seg1: float = 180.0
@@ -147,8 +179,8 @@ class HardwareSnapshot:
     seg2: float
     load1_ma: Optional[float]
     load2_ma: Optional[float]
-    imu1: QuaternionSample
-    imu2: QuaternionSample
+    imu1: ImuSensorSample
+    imu2: ImuSensorSample
 
 
 @dataclass(frozen=True)
@@ -171,8 +203,8 @@ class ImuSerialBridge:
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._lock = threading.Lock()
-        self.imu1 = QuaternionSample()
-        self.imu2 = QuaternionSample()
+        self.imu1 = ImuSensorSample()
+        self.imu2 = ImuSensorSample()
 
     def connect(self, port_name: str, baudrate: int = 115200) -> None:
         if serial is None:
@@ -200,11 +232,61 @@ class ImuSerialBridge:
                 pass
         self._ser = None
 
-    def snapshot(self) -> tuple[QuaternionSample, QuaternionSample]:
+    def snapshot(self) -> tuple[ImuSensorSample, ImuSensorSample]:
         with self._lock:
             return (
-                QuaternionSample(*self.imu1.as_tuple(), updated_at=self.imu1.updated_at),
-                QuaternionSample(*self.imu2.as_tuple(), updated_at=self.imu2.updated_at),
+                ImuSensorSample(
+                    timestamp=self.imu1.timestamp,
+                    gvx=self.imu1.gvx,
+                    gvy=self.imu1.gvy,
+                    gvz=self.imu1.gvz,
+                    gx=self.imu1.gx,
+                    gy=self.imu1.gy,
+                    gz=self.imu1.gz,
+                    qw=self.imu1.qw,
+                    qx=self.imu1.qx,
+                    qy=self.imu1.qy,
+                    qz=self.imu1.qz,
+                    quatAcc=self.imu1.quatAcc,
+                    gravAcc=self.imu1.gravAcc,
+                    gyroAcc=self.imu1.gyroAcc,
+                    lax=self.imu1.lax,
+                    lay=self.imu1.lay,
+                    laz=self.imu1.laz,
+                    ax=self.imu1.ax,
+                    ay=self.imu1.ay,
+                    az=self.imu1.az,
+                    mx=self.imu1.mx,
+                    my=self.imu1.my,
+                    mz=self.imu1.mz,
+                    updated_at=self.imu1.updated_at,
+                ),
+                ImuSensorSample(
+                    timestamp=self.imu2.timestamp,
+                    gvx=self.imu2.gvx,
+                    gvy=self.imu2.gvy,
+                    gvz=self.imu2.gvz,
+                    gx=self.imu2.gx,
+                    gy=self.imu2.gy,
+                    gz=self.imu2.gz,
+                    qw=self.imu2.qw,
+                    qx=self.imu2.qx,
+                    qy=self.imu2.qy,
+                    qz=self.imu2.qz,
+                    quatAcc=self.imu2.quatAcc,
+                    gravAcc=self.imu2.gravAcc,
+                    gyroAcc=self.imu2.gyroAcc,
+                    lax=self.imu2.lax,
+                    lay=self.imu2.lay,
+                    laz=self.imu2.laz,
+                    ax=self.imu2.ax,
+                    ay=self.imu2.ay,
+                    az=self.imu2.az,
+                    mx=self.imu2.mx,
+                    my=self.imu2.my,
+                    mz=self.imu2.mz,
+                    updated_at=self.imu2.updated_at,
+                ),
             )
 
     def _loop(self) -> None:
@@ -220,24 +302,97 @@ class ImuSerialBridge:
                 self.on_log(f"IMU read error: {exc}")
                 time.sleep(0.5)
 
+    def _apply_quaternion(self, idx: int, qw: float, qx: float, qy: float, qz: float, now: float) -> None:
+        target = self.imu1 if int(idx) == 1 else self.imu2
+        target.qw = float(qw)
+        target.qx = float(qx)
+        target.qy = float(qy)
+        target.qz = float(qz)
+        target.updated_at = float(now)
+
+    def _apply_data_csv(self, idx: int, parts: list[str], now: float) -> None:
+        floats: list[float] = []
+        for token in parts:
+            token = str(token).strip()
+            if not token:
+                continue
+            floats.append(float(token))
+        if len(floats) < 23:
+            return
+        target = self.imu1 if int(idx) == 1 else self.imu2
+        (
+            ts,
+            gvx,
+            gvy,
+            gvz,
+            gx,
+            gy,
+            gz,
+            qw,
+            qx,
+            qy,
+            qz,
+            quat_acc,
+            grav_acc,
+            gyro_acc,
+            lax,
+            lay,
+            laz,
+            ax,
+            ay,
+            az,
+            mx,
+            my,
+            mz,
+        ) = floats[:23]
+        target.timestamp = float(ts)
+        target.gvx = float(gvx)
+        target.gvy = float(gvy)
+        target.gvz = float(gvz)
+        target.gx = float(gx)
+        target.gy = float(gy)
+        target.gz = float(gz)
+        target.qw = float(qw)
+        target.qx = float(qx)
+        target.qy = float(qy)
+        target.qz = float(qz)
+        target.quatAcc = float(quat_acc)
+        target.gravAcc = float(grav_acc)
+        target.gyroAcc = float(gyro_acc)
+        target.lax = float(lax)
+        target.lay = float(lay)
+        target.laz = float(laz)
+        target.ax = float(ax)
+        target.ay = float(ay)
+        target.az = float(az)
+        target.mx = float(mx)
+        target.my = float(my)
+        target.mz = float(mz)
+        target.updated_at = float(now)
+
     def _handle_line(self, text: str) -> None:
+        now = time.time()
+        data_match = IMU_DATA_PATTERN.match(text.strip())
+        with self._lock:
+            if data_match is not None:
+                idx = int(data_match.group("idx"))
+                csv_part = data_match.group("csv")
+                parts = [p.strip() for p in csv_part.split(",")]
+                self._apply_data_csv(idx, parts, now)
+                return
         matches = list(IMU_PATTERN.finditer(text))
         if not matches:
             return
-        now = time.time()
         with self._lock:
             for match in matches:
-                sample = QuaternionSample(
-                    qw=float(match.group("qw")),
-                    qx=float(match.group("qx")),
-                    qy=float(match.group("qy")),
-                    qz=float(match.group("qz")),
-                    updated_at=now,
+                self._apply_quaternion(
+                    int(match.group("idx")),
+                    float(match.group("qw")),
+                    float(match.group("qx")),
+                    float(match.group("qy")),
+                    float(match.group("qz")),
+                    now,
                 )
-                if int(match.group("idx")) == 1:
-                    self.imu1 = sample
-                else:
-                    self.imu2 = sample
 
 
 class Dynamixel4DofDriver:
@@ -482,5 +637,5 @@ class ImuHardware:
         self.bridge.disconnect()
         self.connected = False
 
-    def snapshot(self) -> tuple[QuaternionSample, QuaternionSample]:
+    def snapshot(self) -> tuple[ImuSensorSample, ImuSensorSample]:
         return self.bridge.snapshot()

@@ -230,6 +230,16 @@ python3 app.py
 python3 app.py --file ../merger/results/testP.csv
 ```
 
+## 신규: 노란 원형 마커 기반 shape 파이프라인
+
+ArUco 파이프라인과 병렬로 노란색 원형 스티커 기반 shape GT 경로를 추가했습니다.
+
+- `marker_reader -> marker_refiner -> vision_shape_builder`
+- `record_refiner + vision_shape_builder -> merger.merge_marker_core`
+- `dataset/build_shape_residual_dataset.py`
+
+상세 실행법과 컬럼 설명은 `docs/YELLOW_MARKER_SHAPE_PIPELINE_KR.md`를 참고하세요.
+
 ## 데이터 해석 메모
 
 - 위치 단위는 meter입니다.
